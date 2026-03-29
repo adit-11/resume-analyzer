@@ -1,56 +1,150 @@
 import streamlit as st
-from modules.parser import extract_text_from_pdf, extract_text_from_jd
-from modules.scorer import score_resume
+import time
+
+from modules.parser import extract_text_from_pdf, extract_features
+from modules.scorer import (
+    predict_resume_score,
+    generate_feedback,
+    jd_match_score,
+    keyword_gap_analysis,
+    shortlist_decision,
+    skill_gap_suggestions
+)
 from modules.ui_components import (
-    load_css, render_header, render_score,
-    render_keywords, render_stats
+    render_upload_screen,
+    render_loading_screen,
+    render_results_screen,
+    render_jd_section
 )
 
 st.set_page_config(
-    page_title="Resume Analyzer",
-    page_icon="📄",
-    layout="wide"
+    page_title="Resume Roaster — ML Feedback",
+    page_icon="🔥",
+    layout="centered",
 )
 
-load_css("assets/style.css")
-render_header()
+# =========================
+# SESSION STATE
+# =========================
+keys = [
+    "stage", "selected_role", "result", "pdf_file",
+    "resume_text", "jd_text", "jd_score",
+    "matched_keywords", "missing_keywords",
+    "shortlist", "confidence", "skill_suggestions"
+]
 
-col1, col2 = st.columns([1, 1], gap="large")
+for key in keys:
+    if key not in st.session_state:
+        st.session_state[key] = None if key != "stage" else "upload"
 
-with col1:
-    st.markdown("### 📋 Job Description")
-    jd_input = st.text_area(
-        label="Paste the job description here",
-        height=300,
-        placeholder="Paste the full job description here..."
+ROLES = [
+    "💻 Software Engineer", "📊 Data Analyst", "🎨 Frontend Dev",
+    "🤖 ML Intern", "📱 Product Manager", "📈 Business Analyst",
+    "☁️ DevOps / Cloud", "🔐 Cybersecurity"
+]
+
+# =========================
+# SCREEN 1 — UPLOAD
+# =========================
+if st.session_state.stage == "upload":
+
+    uploaded, go_clicked = render_upload_screen(ROLES)
+
+    jd_text = render_jd_section()
+    st.session_state.jd_text = jd_text
+
+    if uploaded:
+        st.session_state.pdf_file = uploaded
+
+    if go_clicked and uploaded:
+        st.session_state.stage = "loading"
+        st.rerun()
+
+# =========================
+# SCREEN 2 — LOADING
+# =========================
+elif st.session_state.stage == "loading":
+
+    render_loading_screen()
+
+    try:
+        time.sleep(1)
+
+        # Extract resume text
+        text = extract_text_from_pdf(st.session_state.pdf_file)
+        st.session_state.resume_text = text
+
+        jd_score = None
+        matched_keywords, missing_keywords = [], []
+
+        if st.session_state.jd_text:
+            jd_score = jd_match_score(text, st.session_state.jd_text)
+
+            matched_keywords, missing_keywords = keyword_gap_analysis(
+                text,
+                st.session_state.jd_text
+            )
+
+        st.session_state.jd_score = jd_score
+        st.session_state.matched_keywords = matched_keywords
+        st.session_state.missing_keywords = missing_keywords
+
+        # Score calculation
+        features = extract_features(text)
+        score = predict_resume_score(features)
+
+        result = generate_feedback(
+            text,
+            score,
+            st.session_state.selected_role
+        )
+        result["score"] = score
+
+        # =========================
+        # NEW FEATURES (IMPORTANT 🔥)
+        # =========================
+
+        # Shortlist decision
+        decision, confidence = shortlist_decision(score, jd_score)
+
+        # Skill suggestions
+        skill_suggestions = skill_gap_suggestions(
+            missing_keywords,
+            st.session_state.selected_role
+        )
+
+        # Save to session
+        st.session_state.shortlist = decision
+        st.session_state.confidence = confidence
+        st.session_state.skill_suggestions = skill_suggestions
+
+        st.session_state.result = result
+        st.session_state.stage = "results"
+        st.rerun()
+
+    except Exception as e:
+        st.error(f"Error: {e}")
+        if st.button("Retry"):
+            st.session_state.stage = "upload"
+            st.rerun()
+
+# =========================
+# SCREEN 3 — RESULTS
+# =========================
+elif st.session_state.stage == "results":
+
+    restart = render_results_screen(
+        st.session_state.result,
+        st.session_state.selected_role,
+        st.session_state.jd_score,
+        st.session_state.matched_keywords,
+        st.session_state.missing_keywords,
+        st.session_state.shortlist,
+        st.session_state.confidence,
+        st.session_state.skill_suggestions
     )
 
-with col2:
-    st.markdown("### 📄 Your Resume")
-    uploaded_file = st.file_uploader(
-        label="Upload your resume",
-        type=["pdf"],
-        help="Only PDF format supported"
-    )
-
-st.markdown("---")
-
-if st.button("🔍 Analyze Resume", use_container_width=True):
-    if not jd_input.strip():
-        st.warning("Please paste a job description.")
-    elif uploaded_file is None:
-        st.warning("Please upload your resume PDF.")
-    else:
-        with st.spinner("Analyzing your resume..."):
-            resume_text = extract_text_from_pdf(uploaded_file)
-            jd_text = extract_text_from_jd(jd_input)
-            result = score_resume(resume_text, jd_text)
-
-        render_stats(result)
-        st.markdown("<br>", unsafe_allow_html=True)
-
-        col3, col4 = st.columns([1, 2])
-        with col3:
-            render_score(result["score"])
-        with col4:
-            render_keywords(result["matched"], result["missing"])
+    if restart:
+        for key in keys:
+            st.session_state[key] = None if key != "stage" else "upload"
+        st.rerun()
