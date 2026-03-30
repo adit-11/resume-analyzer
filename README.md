@@ -417,6 +417,6 @@ This project is licensed under the MIT License — see [LICENSE](LICENSE) for de
 
 *If this helped you land an interview — drop a ⭐ on the repo.*
 
-[![GitHub stars](https://img.shields.io/github/stars/yourusername/resume-roaster?style=social)]([https://github.com/adit-11/resume-analyzer])
+[![GitHub stars](https://img.shields.io/github/stars/adit-11/resume-analyzer?style=social)](https://github.com/adit-11/resume-analyzer)
 
 </div>
